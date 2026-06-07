@@ -583,15 +583,31 @@
 <div id="toast">알림</div>
 <div class="watermark">made by 박선생</div>
 
-<script type="module">
-// ══════════════════════════════════════
-//  Firebase (ES Module - Safari 호환)
-// ══════════════════════════════════════
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-import { getDatabase, ref, set, update, get, onValue, off, remove, child }
-  from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
+<div id="debug-panel" style="display:none;position:fixed;bottom:0;left:0;right:0;background:#1a0000;color:#ff6b6b;font-size:0.75rem;padding:10px 14px;z-index:9999;max-height:160px;overflow-y:auto;border-top:2px solid #ff0000;font-family:monospace;white-space:pre-wrap;"></div>
 
-const app = initializeApp({
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+<script>
+// ══ 디버그: JS 오류를 화면에 직접 표시 ══
+(function(){
+  const panel = document.getElementById('debug-panel');
+  function showErr(msg){
+    panel.style.display = 'block';
+    panel.textContent += msg + '\n---\n';
+  }
+  window.onerror = function(msg, src, line, col, err){
+    showErr('[오류] ' + msg + '\n' + (src||'') + ' ' + line + ':' + col);
+    return false;
+  };
+  window.addEventListener('unhandledrejection', function(e){
+    showErr('[Promise오류] ' + (e.reason?.message || String(e.reason)));
+  });
+})();
+
+// ══════════════════════════════════════
+//  Firebase (v1과 동일한 compat 방식)
+// ══════════════════════════════════════
+firebase.initializeApp({
   apiKey: "AIzaSyCZuenSO5SB5s0LH5iZBEv625qAyO942cU",
   authDomain: "crew-9c2ef.firebaseapp.com",
   projectId: "crew-9c2ef",
@@ -600,29 +616,7 @@ const app = initializeApp({
   appId: "1:516544145139:web:fe84682c923ecd2ffdf986",
   databaseURL: "https://crew-9c2ef-default-rtdb.asia-southeast1.firebasedatabase.app"
 });
-const database = getDatabase(app);
-
-// ── Firebase 래퍼 (기존 코드와 호환) ──
-const db = {
-  ref: (path) => {
-    const dbRef = ref(database, path);
-    return {
-      _path: path,
-      set: (val) => set(dbRef, val),
-      update: (val) => update(dbRef, val),
-      remove: () => remove(dbRef),
-      once: () => get(dbRef).then(snap => ({
-        val: () => snap.val()
-      })),
-      on: (event, cb) => {
-        onValue(dbRef, snap => cb({ val: () => snap.val() }));
-        return cb; // listener 참조 반환
-      },
-      off: (event, cb) => off(dbRef),
-      child: (childPath) => db.ref(path + '/' + childPath),
-    };
-  }
-};
+const db = firebase.database();
 
 // ══════════════════════════════════════
 //  카드 생성
@@ -849,15 +843,16 @@ function showWaitingRoom(){
 function subscribeRoom(){
   if(!roomRef) return;
   unsubscribeAll();
-  roomRef.on('value', snap => {
+  const handler = roomRef.on('value', snap => {
     const room = snap.val();
     if(!room) return;
     gameState = room;
     onRoomUpdate(room);
   });
+  listeners.push({ref:roomRef, cb:handler, event:'value'});
 }
 function unsubscribeAll(){
-  if(roomRef) roomRef.off('value');
+  listeners.forEach(l => l.ref.off(l.event, l.cb));
   listeners = [];
 }
 
@@ -979,13 +974,16 @@ async function startGame(){
   });
 
   const dir=Math.random()<0.5?'asc':'desc';
+
+  // ※ Firebase는 빈 배열([])을 null로 저장 → fieldPlaceholder로 대체
+  // ※ newHands:{} 로 덮으면 개별 newHands/uid 가 사라짐 → 먼저 update 후 개별 set
   const updates={
     status:'playing', currentRound:1,
     direction:dir,
     roundType,
     usedTypes:[roundType],
-    field:[],       // 단일 필드
-    aiHands, newHands:{},
+    fieldPlaceholder: true,
+    aiHands,
     showStartOverlay:true,
     roundHistory:[],
   };
@@ -1074,8 +1072,7 @@ function renderPlayersBar(room){
 
 function renderField(room){
   const type=room.roundType||'frac';
-  const field=room.field||[];
-  // 3개 레인 중 해당 분류만 보이게
+  const field = Array.isArray(room.field) ? room.field : [];
   ['frac','dec','pct'].forEach(t=>{
     const lane=document.getElementById('field-lane-'+t);
     if(lane) lane.style.display=(t===type)?'block':'none';
@@ -1158,7 +1155,9 @@ async function submitCard(){
   selectedCard=null;
   document.getElementById('btn-submit').disabled=true;
 
-  const field=[...(room.field||[]),card];
+  // Firebase에서 field가 null로 올 수 있으므로 안전하게 처리
+  const prevField = Array.isArray(room.field) ? room.field : [];
+  const field=[...prevField, card];
   const done=myHand.length===0;
 
   const updates={
@@ -1204,7 +1203,8 @@ async function doAITurn(room){
     const card=hand[0];
     hand=hand.slice(1);
     const done=hand.length===0;
-    const field=[...(room.field||[]),card];
+    const prevField = Array.isArray(room.field) ? room.field : [];
+    const field=[...prevField, card];
 
     await roomRef.update({
       field,
@@ -1233,7 +1233,7 @@ async function doAITurn(room){
 // ══════════════════════════════════════
 async function verifyAndEndRound(room){
   const dir=room.direction||'asc';
-  const field=room.field||[];
+  const field = Array.isArray(room.field) ? room.field : [];
 
   const checkOrder=(cards)=>{
     for(let i=1;i<cards.length;i++){
@@ -1321,8 +1321,8 @@ async function nextRound(){
   const updates={
     status:'playing', currentRound:nextRnd,
     direction:dir, roundType:nextType, usedTypes:newUsed,
-    field:[],
-    aiHands, newHands:{},
+    fieldPlaceholder: true,
+    aiHands,
     showStartOverlay:true,
     verifyResult:null,
   };
@@ -1393,24 +1393,15 @@ async function playAgain(){
 }
 
 // 오래된 방 청소 (1시간)
-db.ref('cardGameCoop/rooms').once().then(snap=>{
-  const rooms=snap.val()||{};
-  const now=Date.now();
-  Object.entries(rooms).forEach(([code,room])=>{
-    if(room.createdAt && now-room.createdAt>3600000){
-      db.ref('cardGameCoop/rooms/'+code).remove();
-      db.ref('cardGameCoop/hands/'+code).remove();
+db.ref('cardGameCoop/rooms').once('value', snap => {
+  const rooms = snap.val() || {};
+  const now = Date.now();
+  Object.entries(rooms).forEach(([code, room]) => {
+    if(room.createdAt && now - room.createdAt > 3600000){
+      db.ref('cardGameCoop/rooms/' + code).remove();
+      db.ref('cardGameCoop/hands/' + code).remove();
     }
   });
-});
-
-// ── type="module" 안의 함수를 HTML onclick에서 쓸 수 있도록 전역 노출 ──
-Object.assign(window, {
-  showCreateRoom, showJoinRoom, backToMain,
-  createRoom, joinRoom,
-  startGame, closeStartOverlay,
-  selectCard, cancelSelect, submitCard,
-  nextRound, leaveRoom, playAgain,
 });
 
 console.log('🃏 수학 카드 협동 v2.0 - made by 박선생');
