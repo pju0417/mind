@@ -1205,7 +1205,9 @@ async function submitCard(){
     const freshSnap=await roomRef.once('value');
     const freshRoom=freshSnap.val();
     const allDone=Object.values(freshRoom.players||{}).every(p=>p.done);
-    if(allDone) await verifyAndEndRound(freshRoom);
+    if(allDone){
+      await verifyAndEndRound(freshRoom);
+    }
   }
 }
 
@@ -1213,23 +1215,48 @@ async function submitCard(){
 //  AI 처리 (호스트)
 // ══════════════════════════════════════
 let aiTimer=null;
+
+// AI 카드 범위(max-min)로 딜레이 계산
+// 범위 넓음 → 판단 쉬움 → 빨리 냄 (1~2초)
+// 범위 좁음 → 고민 많음 → 늦게 냄 (3~5초)
+function aiDelayByRange(hand){
+  if(!hand||hand.length===0) return 2000;
+  const vals=hand.map(c=>normalizedValue(c));
+  const range=Math.max(...vals)-Math.min(...vals);
+  // range: 0(동일)~1(최대) → delay: 5000~1000ms
+  const delay=1000+(1-range)*4000+Math.random()*500;
+  return Math.round(delay);
+}
+
 function scheduleAI(room){
   if(aiTimer) return;
   const players=room.players||{};
-  const hasAILeft=Object.entries(players).some(([uid,p])=>p.isAI && !p.done);
-  if(!hasAILeft) return;
-  // 실제 플레이어가 모두 완료한 뒤에만 AI 시작
-  const humanAllDone=Object.entries(players)
-    .filter(([,p])=>!p.isAI).every(([,p])=>p.done);
-  if(!humanAllDone) return;
-  // 3~5초 딜레이 (생각하는 시간)
-  aiTimer=setTimeout(()=>{ aiTimer=null; doAITurn(room); }, 3000+Math.random()*2000);
+  const aiHands=room.aiHands||{};
+  // 아직 안 낸 AI 중 가장 빨리 낼 AI 찾기
+  let minDelay=Infinity;
+  let hasAI=false;
+  Object.entries(players).forEach(([uid,p])=>{
+    if(!p.isAI||p.done) return;
+    const hand=aiHands[uid]||[];
+    if(hand.length===0) return;
+    hasAI=true;
+    const d=aiDelayByRange(hand);
+    if(d<minDelay) minDelay=d;
+  });
+  if(!hasAI) return;
+  aiTimer=setTimeout(()=>{ aiTimer=null; doAITurn(room); }, minDelay);
 }
 
 async function doAITurn(room){
   if(!room||room.status!=='playing') return;
+  // 최신 상태 가져오기
+  const snap=await roomRef.once('value');
+  room=snap.val();
+  if(!room||room.status!=='playing') return;
+
   const players=room.players||{};
   const aiHands=room.aiHands||{};
+  const dir=room.direction||'asc';
   let updated=false;
 
   for(const [uid,p] of Object.entries(players)){
@@ -1237,10 +1264,19 @@ async function doAITurn(room){
     let hand=aiHands[uid]||[];
     if(hand.length===0) continue;
 
-    const card=hand[0];
-    hand=hand.slice(1);
+    // 방향에 맞게 정렬해서 냄
+    const sorted=[...hand].sort((a,b)=>
+      dir==='asc'
+        ? normalizedValue(a)-normalizedValue(b)
+        : normalizedValue(b)-normalizedValue(a)
+    );
+    const card=sorted[0];
+    const cardIdx=hand.findIndex(c=>
+      c.type===card.type && Math.abs(c.value-card.value)<0.0001
+    );
+    hand=hand.filter((_,i)=>i!==cardIdx);
     const done=hand.length===0;
-    const prevField = Array.isArray(room.field) ? room.field : [];
+    const prevField=Array.isArray(room.field)?room.field:[];
     const field=[...prevField, card];
 
     await roomRef.update({
@@ -1249,7 +1285,6 @@ async function doAITurn(room){
       [`players/${uid}/handCount`]:hand.length,
       [`players/${uid}/done`]:done,
     });
-    room={...(await roomRef.once('value')).val()};
     updated=true;
     break;
   }
@@ -1260,8 +1295,16 @@ async function doAITurn(room){
     if(allDone){
       await verifyAndEndRound(freshRoom);
     } else {
-      // AI 카드 한 장당 2~4초 간격
-      setTimeout(()=>doAITurn(freshRoom), 2000+Math.random()*2000);
+      // 다음 AI 카드: 남은 손패 범위로 딜레이 재계산
+      const aiHandsNow=freshRoom.aiHands||{};
+      const playersNow=freshRoom.players||{};
+      let nextDelay=2000;
+      Object.entries(playersNow).forEach(([uid,p])=>{
+        if(!p.isAI||p.done) return;
+        const h=aiHandsNow[uid]||[];
+        if(h.length>0) nextDelay=Math.min(nextDelay,aiDelayByRange(h));
+      });
+      setTimeout(()=>doAITurn(freshRoom), nextDelay);
     }
   }
 }
