@@ -378,6 +378,16 @@
     z-index:50; pointer-events:none; letter-spacing:0.5px;
   }
 
+  .card-back-field {
+    width:78px; height:112px; border-radius:10px;
+    background:linear-gradient(135deg,#1e3a5f,#0f1923);
+    border:2px solid #4a9eff44;
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    color:var(--text-dim);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+
   .card-back {
     width:78px; height:112px; border-radius:10px;
     background:linear-gradient(135deg,#2a3a50,#1a2535);
@@ -956,7 +966,8 @@ function getPoolForType(type){
   return genPctPool();
 }
 
-const CARDS_PER_PLAYER=5; // 한 라운드에 1인당 카드 수
+const TOTAL_CARDS=8;
+function cardsPerPlayer(n){ return Math.floor(TOTAL_CARDS/n); }
 
 async function startGame(){
   if(!isHost) return;
@@ -965,7 +976,7 @@ async function startGame(){
   const pIds=Object.keys(players).sort((a,b)=>players[a].index-players[b].index);
 
   const roundType=pickRoundType(1,[]);
-  const hands=dealUniqueHands(getPoolForType(roundType), CARDS_PER_PLAYER, pIds.length);
+  const hands=dealUniqueHands(getPoolForType(roundType), cardsPerPlayer(pIds.length), pIds.length);
   const newHands={}, aiHands={};
   pIds.forEach((uid,i)=>{
     newHands[uid]=hands[i];
@@ -988,7 +999,7 @@ async function startGame(){
     roundHistory:[],
   };
   pIds.forEach(uid=>{
-    updates[`players/${uid}/handCount`]=CARDS_PER_PLAYER;
+    updates[`players/${uid}/handCount`]=cardsPerPlayer(pIds.length);
     updates[`players/${uid}/done`]=false;
     if(!players[uid].isAI && uid!==myUid) updates[`newHands/${uid}`]=newHands[uid];
   });
@@ -1077,10 +1088,13 @@ function renderField(room){
     const lane=document.getElementById('field-lane-'+t);
     if(lane) lane.style.display=(t===type)?'block':'none';
   });
-  renderLane(type, field);
+  // 모든 플레이어가 완료했을 때만 앞면 공개
+  const players=room.players||{};
+  const allDone=Object.values(players).every(p=>p.done);
+  renderLane(type, field, allDone);
 }
 
-function renderLane(type, cards){
+function renderLane(type, cards, reveal=false){
   const lane=document.getElementById('lane-'+type);
   const count=document.getElementById('lane-count-'+type);
   lane.innerHTML='';
@@ -1089,10 +1103,19 @@ function renderLane(type, cards){
     lane.innerHTML='<span class="lane-empty">아직 낸 카드가 없어요</span>';
     return;
   }
-  cards.forEach(card=>{
-    const el=createCardEl(card,false);
-    el.classList.add('placed');
-    lane.appendChild(el);
+  cards.forEach((card,i)=>{
+    if(reveal){
+      // 앞면 공개
+      const el=createCardEl(card,false);
+      el.classList.add('placed');
+      lane.appendChild(el);
+    } else {
+      // 뒷면
+      const back=document.createElement('div');
+      back.className='card-back-field';
+      back.innerHTML=\`<span style="font-size:1.4rem;">🃏</span><span style="font-size:0.7rem;margin-top:4px;opacity:0.6;">\${i+1}번째</span>\`;
+      lane.appendChild(back);
+    }
   });
 }
 
@@ -1186,7 +1209,12 @@ function scheduleAI(room){
   const players=room.players||{};
   const hasAILeft=Object.entries(players).some(([uid,p])=>p.isAI && !p.done);
   if(!hasAILeft) return;
-  aiTimer=setTimeout(()=>{ aiTimer=null; doAITurn(room); },1000+Math.random()*1200);
+  // 실제 플레이어가 모두 완료한 뒤에만 AI 시작
+  const humanAllDone=Object.entries(players)
+    .filter(([,p])=>!p.isAI).every(([,p])=>p.done);
+  if(!humanAllDone) return;
+  // 3~5초 딜레이 (생각하는 시간)
+  aiTimer=setTimeout(()=>{ aiTimer=null; doAITurn(room); }, 3000+Math.random()*2000);
 }
 
 async function doAITurn(room){
@@ -1223,7 +1251,8 @@ async function doAITurn(room){
     if(allDone){
       await verifyAndEndRound(freshRoom);
     } else {
-      setTimeout(()=>doAITurn(freshRoom),900+Math.random()*900);
+      // AI 카드 한 장당 2~4초 간격
+      setTimeout(()=>doAITurn(freshRoom), 2000+Math.random()*2000);
     }
   }
 }
@@ -1307,7 +1336,7 @@ async function nextRound(){
   const nextType=pickRoundType((room.currentRound||1)+1, usedTypes);
   const newUsed=[...usedTypes,nextType];
 
-  const hands=dealUniqueHands(getPoolForType(nextType), CARDS_PER_PLAYER, pIds.length);
+  const hands=dealUniqueHands(getPoolForType(nextType), cardsPerPlayer(pIds.length), pIds.length);
   const newHands={}, aiHands={};
   pIds.forEach((uid,i)=>{
     newHands[uid]=hands[i];
@@ -1327,7 +1356,7 @@ async function nextRound(){
     verifyResult:null,
   };
   pIds.forEach(uid=>{
-    updates[`players/${uid}/handCount`]=CARDS_PER_PLAYER;
+    updates[`players/${uid}/handCount`]=cardsPerPlayer(pIds.length);
     updates[`players/${uid}/done`]=false;
     if(!players[uid].isAI && uid!==myUid) updates[`newHands/${uid}`]=newHands[uid];
   });
