@@ -583,13 +583,15 @@
 <div id="toast">알림</div>
 <div class="watermark">made by 박선생</div>
 
-<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
-<script>
+<script type="module">
 // ══════════════════════════════════════
-//  Firebase
+//  Firebase (ES Module - Safari 호환)
 // ══════════════════════════════════════
-firebase.initializeApp({
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import { getDatabase, ref, set, update, get, onValue, off, remove, child }
+  from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
+
+const app = initializeApp({
   apiKey: "AIzaSyCZuenSO5SB5s0LH5iZBEv625qAyO942cU",
   authDomain: "crew-9c2ef.firebaseapp.com",
   projectId: "crew-9c2ef",
@@ -598,7 +600,29 @@ firebase.initializeApp({
   appId: "1:516544145139:web:fe84682c923ecd2ffdf986",
   databaseURL: "https://crew-9c2ef-default-rtdb.asia-southeast1.firebasedatabase.app"
 });
-const db = firebase.database();
+const database = getDatabase(app);
+
+// ── Firebase 래퍼 (기존 코드와 호환) ──
+const db = {
+  ref: (path) => {
+    const dbRef = ref(database, path);
+    return {
+      _path: path,
+      set: (val) => set(dbRef, val),
+      update: (val) => update(dbRef, val),
+      remove: () => remove(dbRef),
+      once: () => get(dbRef).then(snap => ({
+        val: () => snap.val()
+      })),
+      on: (event, cb) => {
+        onValue(dbRef, snap => cb({ val: () => snap.val() }));
+        return cb; // listener 참조 반환
+      },
+      off: (event, cb) => off(dbRef),
+      child: (childPath) => db.ref(path + '/' + childPath),
+    };
+  }
+};
 
 // ══════════════════════════════════════
 //  카드 생성
@@ -825,17 +849,16 @@ function showWaitingRoom(){
 function subscribeRoom(){
   if(!roomRef) return;
   unsubscribeAll();
-  const handler=roomRef.on('value',snap=>{
-    const room=snap.val();
+  roomRef.on('value', snap => {
+    const room = snap.val();
     if(!room) return;
-    gameState=room;
+    gameState = room;
     onRoomUpdate(room);
   });
-  listeners.push({ref:roomRef,cb:handler,event:'value'});
 }
 function unsubscribeAll(){
-  listeners.forEach(l=>l.ref.off(l.event,l.cb));
-  listeners=[];
+  if(roomRef) roomRef.off('value');
+  listeners = [];
 }
 
 // ══════════════════════════════════════
@@ -1370,7 +1393,7 @@ async function playAgain(){
 }
 
 // 오래된 방 청소 (1시간)
-db.ref('cardGameCoop/rooms').once('value',snap=>{
+db.ref('cardGameCoop/rooms').once().then(snap=>{
   const rooms=snap.val()||{};
   const now=Date.now();
   Object.entries(rooms).forEach(([code,room])=>{
@@ -1379,6 +1402,15 @@ db.ref('cardGameCoop/rooms').once('value',snap=>{
       db.ref('cardGameCoop/hands/'+code).remove();
     }
   });
+});
+
+// ── type="module" 안의 함수를 HTML onclick에서 쓸 수 있도록 전역 노출 ──
+Object.assign(window, {
+  showCreateRoom, showJoinRoom, backToMain,
+  createRoom, joinRoom,
+  startGame, closeStartOverlay,
+  selectCard, cancelSelect, submitCard,
+  nextRound, leaveRoom, playAgain,
 });
 
 console.log('🃏 수학 카드 협동 v2.0 - made by 박선생');
