@@ -903,6 +903,10 @@ function onRoomUpdate(room){
   } else if(room.status==='round_end'){
     renderGame(room);
     showRoundResult(room);
+    // 참가자가 '다음 라운드'를 눌렀을 때, 방장 화면에서 자동으로 다음 라운드를 시작
+    if(isHost && room.nextRoundRequest && room.nextRoundRequest.round === room.currentRound){
+      nextRound(true);
+    }
   } else if(room.status==='game_end'){
     showFinalResult(room);
   }
@@ -1257,6 +1261,7 @@ async function submitCard(){
 //  AI 처리 (호스트)
 // ══════════════════════════════════════
 let aiTimer=null;
+let processingNextRound=false;
 
 // AI 카드 범위(max-min)로 딜레이 계산
 // 범위 넓음 → 판단 쉬움 → 빨리 냄 (1~2초)
@@ -1410,7 +1415,16 @@ function showRoundResult(room){
   vDiv.appendChild(row);
 
   const isLast=(room.currentRound||1)>=(room.totalRounds||5);
-  document.getElementById('btn-next-round').textContent=isLast?'결과 보기 →':'다음 라운드 →';
+  const nextBtn=document.getElementById('btn-next-round');
+  if(isLast){
+    nextBtn.textContent='결과 보기 →';
+  } else if(isHost){
+    nextBtn.textContent='다음 라운드 →';
+  } else if(room.nextRoundRequest && room.nextRoundRequest.round === room.currentRound){
+    nextBtn.textContent='방장이 넘기는 중...';
+  } else {
+    nextBtn.textContent='다음 라운드 요청 →';
+  }
   showOverlay('result');
 }
 
@@ -1429,14 +1443,30 @@ function peekField(){
 // ══════════════════════════════════════
 //  다음 라운드 (호스트)
 // ══════════════════════════════════════
-async function nextRound(){
-  hideOverlay('result');
+async function nextRound(fromRequest=false){
   const room=gameState;
   if(!room) return;
+
   if((room.currentRound||1)>=(room.totalRounds||5)){
+    hideOverlay('result');
     showFinalResult(room); return;
   }
-  if(!isHost) return;
+
+  // 온라인 참가자가 버튼을 눌렀을 때는 방장에게 다음 라운드 시작을 요청합니다.
+  // 실제 카드 재분배와 Firebase 업데이트는 방장 화면에서만 처리합니다.
+  if(!isHost){
+    await roomRef.child('nextRoundRequest').set({
+      round: room.currentRound||1,
+      requestedBy: myUid,
+      requestedAt: Date.now()
+    });
+    toast('방장에게 다음 라운드 시작을 요청했어요.');
+    return;
+  }
+
+  if(processingNextRound) return;
+  processingNextRound=true;
+  hideOverlay('result');
 
   const players=room.players||{};
   const pIds=Object.keys(players).sort((a,b)=>players[a].index-players[b].index);
@@ -1473,9 +1503,11 @@ async function nextRound(){
     updates[`players/${uid}/done`]=false;
     if(!players[uid].isAI && uid!==myUid) updates[`newHands/${uid}`]=newHands[uid];
   });
+  updates.nextRoundRequest=null;
   await roomRef.update(updates);
   await db.ref(`cardGameCoop/hands/${roomCode}/${myUid}`).set(myHand);
   renderHand(true);
+  processingNextRound=false;
 }
 
 // ══════════════════════════════════════
