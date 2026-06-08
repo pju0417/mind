@@ -444,7 +444,7 @@
     background:linear-gradient(135deg,#1e3a5f,#0f1923);
     border:2px solid #4a9eff44;
   }
-  .demo-front::after {
+  .demo-front.unknown::after {
     content:'?';
     font-family:'Jua',sans-serif;
     font-size:2rem;
@@ -532,14 +532,14 @@
     <div class="lobby-title-row">
       <div class="demo-card-wrap">
         <div class="demo-card" id="demo-inner">
-          <div class="demo-front" id="demo-front"></div>
+          <div class="demo-front unknown" id="demo-front"></div>
           <div class="demo-back" id="demo-back"></div>
         </div>
       </div>
       <div class="lobby-title">수학 카드 협동</div>
       <div class="demo-card-wrap">
         <div class="demo-card" id="demo-inner2">
-          <div class="demo-front" id="demo-front2"></div>
+          <div class="demo-front unknown" id="demo-front2"></div>
           <div class="demo-back" id="demo-back2"></div>
         </div>
       </div>
@@ -1075,8 +1075,16 @@ function onRoomUpdate(room){
       displayStartOverlay(room);
       if(isHost) roomRef.update({showStartOverlay:false});
     }
-    // AI 처리
-    if(isHost) scheduleAI(room);
+    // 모든 플레이어 완료 시 호스트가 라운드 종료 처리
+    if(isHost){
+      const players=room.players||{};
+      const allDone=Object.values(players).length>0 && Object.values(players).every(p=>p.done);
+      if(allDone && room.status==='playing'){
+        verifyAndEndRound(room);
+        return;
+      }
+      scheduleAI(room);
+    }
   } else if(room.status==='round_end'){
     renderGame(room);
     showRoundResult(room);
@@ -1784,7 +1792,9 @@ function showHowTo(){ showOverlay('howto'); }
     let idx = startIdx;
 
     function setEl(el, item){
-      el.className = el.className.split(' ')[0] + ' ' + item.type;
+      // unknown 제거 후 타입 클래스 적용
+      const base = el.className.split(' ')[0];
+      el.className = base + ' ' + item.type;
       el.innerHTML = '<div class="demo-content">'+item.main+'</div>';
     }
     // 첫 뒤집기 전까지 front는 빈 상태 유지 (CSS ::after 의 ? 표시)
