@@ -1762,18 +1762,18 @@ function showHowTo(){ showOverlay('howto'); }
 // ══════════════════════════════════════
 (function initDemoCards(){
   const DEMOS = [
-    { type:'frac', label:'분수', main:'<span class="demo-frac-line"><span class="demo-frac-num">3</span><span class="demo-frac-den">4</span></span>' },
-    { type:'pct',  label:'백분율', main:'75%' },
-    { type:'dec',  label:'소수', main:'1.4' },
-    { type:'frac', label:'분수', main:'3 ÷ 4' },
-    { type:'pct',  label:'백분율', main:'0.4<br>→ ?%' },
-    { type:'dec',  label:'소수', main:'<span class="demo-frac-line"><span class="demo-frac-num">7</span><span class="demo-frac-den">5</span></span>' },
-    { type:'frac', label:'분수', main:'0.75' },
-    { type:'dec',  label:'소수', main:'7 ÷ 5' },
-    { type:'pct',  label:'백분율', main:'40%' },
-    { type:'frac', label:'분수', main:'<span class="demo-frac-line"><span class="demo-frac-num">1</span><span class="demo-frac-den">2</span></span>' },
-    { type:'dec',  label:'소수', main:'2.5' },
-    { type:'pct',  label:'백분율', main:'50%' },
+    { type:'frac', main:'<span class="demo-frac-line"><span class="demo-frac-num">3</span><span class="demo-frac-den">4</span></span>' },
+    { type:'pct',  main:'75%' },
+    { type:'dec',  main:'1.4' },
+    { type:'frac', main:'<span class="demo-frac-line"><span class="demo-frac-num">2</span><span class="demo-frac-den">5</span></span>' },
+    { type:'pct',  main:'40%' },
+    { type:'dec',  main:'2.5' },
+    { type:'frac', main:'<span class="demo-frac-line"><span class="demo-frac-num">1</span><span class="demo-frac-den">3</span></span>' },
+    { type:'dec',  main:'3.2' },
+    { type:'pct',  main:'60%' },
+    { type:'frac', main:'<span class="demo-frac-line"><span class="demo-frac-num">3</span><span class="demo-frac-den">5</span></span>' },
+    { type:'dec',  main:'0.8' },
+    { type:'pct',  main:'25%' },
   ];
 
   function makeFlipCard(innerId, frontId, backId, startIdx){
@@ -1785,8 +1785,7 @@ function showHowTo(){ showOverlay('howto'); }
 
     function setEl(el, item){
       el.className = el.className.split(' ')[0] + ' ' + item.type;
-      el.innerHTML = '<div class="demo-badge">'+item.label+'</div>'
-                   + '<div class="demo-content">'+item.main+'</div>';
+      el.innerHTML = '<div class="demo-content">'+item.main+'</div>';
     }
     // 첫 뒤집기 전까지 front는 빈 상태 유지 (CSS ::after 의 ? 표시)
     return function flip(){
